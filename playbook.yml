@@ -1,0 +1,320 @@
+---
+- name: Packages installation
+  hosts: all
+  become: yes
+  become_method: community.general.sudosu
+  become_user: root
+  ignore_errors: true
+  tasks:
+    - name: Add specified repository into sources list
+      ansible.builtin.apt_repository:
+        repo: ppa:openjdk-r/ppa
+    - name: Installing packages using apt-get
+      register: updatesys
+      apt:
+        update_cache: yes
+        name:
+          - git-core
+          - gnupg
+          - flex
+          - bison
+          - gperf
+          - zip
+          - curl
+          - zlib1g-dev
+          - gcc-multilib
+          - g++-multilib
+          - lib32ncurses5-dev
+          - lib32ncurses5
+          - lib32z1
+          - x11proto-core-dev
+          - libx11-dev
+          - lib32z-dev
+          - python-argparse
+          - ccache
+          - libreadline6-dev
+          - libgl1-mesa-dev
+          - tofrodos
+          - python-markdown
+          - libxml2-utils
+          - xsltproc
+          - zlib1g-dev
+          - squashfs-tools
+          - bc
+          - ccache
+          - tesseract-ocr
+          - imagemagick
+          - gettext
+          - python-libxml2
+          - unzip
+          - dosfstools
+          - mtools
+          - dos2unix
+          - python-mako
+          - liblz4-tool
+          - libssl-dev
+          - build-essential
+          - minizip
+          - subversion
+          - texinfo
+          - git
+          - python-pystache
+          - libssl-dev
+          - libxkbcommon-x11-0
+          - git-lfs
+          - gawk
+          - wget
+          - git-core
+          - diffstat
+          - unzip
+          - texinfo
+          - gcc-multilib
+          - build-essential
+          - chrpath
+          - socat
+          - libsdl1.2-dev
+          - xterm
+          - rpm2cpio
+          - lzop
+          - liblz4-tool
+          - libssl-dev
+          - g++-multilib
+          - lib32z1-dev
+          - libelf-dev
+          - corkscrew
+          - squashfs-tools
+          - whois
+          - kali
+          - makepasswd
+          - mkpasswd
+          - texlive-full
+          - libterm-readkey-perl
+          - intltool
+          - xalan
+          - openjdk-8-jdk
+          - libncurses5
+          - libncursesw5
+          - expect
+        force_apt_get: yes
+    - name: Installing packages using apt
+      apt:
+        name:
+          - p7zip-full
+          - p7zip-rar
+          - jq
+          - helix-cli
+          - python3-pip
+    - name: Installing python-pip
+      apt:
+        name: python3-pip
+        force_apt_get: yes
+    - name: Installing cryptography
+      ansible.builtin.pip:
+       name: cryptography
+       extra_args: --user
+    - name: To install pycryptodome using pip3
+      pip:
+        name: pycryptodome
+        executable: pip3
+    - name: Installing packages using pip
+      pip:
+        name: Jira
+
+- name: Environment setup
+  hosts: all
+  become: yes
+  become_method: su
+  become_user: "{{ ansible_user }}"
+  vars_files:
+    - vars.yml
+  tasks:
+    - name: Generating SSH key
+      openssh_keypair:
+        path: "~/.ssh/id_rsa"
+        type: rsa
+        size: 4096
+        state: present
+        force: no
+    - name: Reconfiguring the shell to bash from dash
+      shell: |
+        sudo dpkg-reconfigure -p critical dash
+    - name: To create a soft link
+      shell: "ln -s /usr/lib/i386-linux-gnu/mesa/libGL.so.1 /usr/lib/i386-linux-gnu/libGL.so || true"
+    - name: Perforce installation
+      become: yes
+      become_method: community.general.sudosu
+      become_user: root
+      copy:
+        dest: "/etc/apt/sources.list.d/perforce.list"
+        content: |
+          deb http://package.perforce.com/apt/ubuntu xenial release
+    - name: To get the perforce pubkey
+      become: yes
+      become_method: community.general.sudosu
+      become_user: root
+      shell: |
+        wget -qO - https://package.perforce.com/perforce.pubkey | apt-key add -
+      args:
+        warn: false
+    - name: P4 login
+      shell: |
+        spawn p4 -u {{ ansible_user }} -p {{ p4server_ip }}:{{ item }} login
+        expect "Enter password:"
+        send "{{ ansible_password }}\n"
+      args:
+         executable: /usr/bin/expect
+      with_items: "{{ p4server_port }}"
+    - name: P4 setup
+      shell: |
+        export P4USER={{ ansible_user }}
+        export P4PORT={{ p4server_ip }}:{{ item }}
+      with_items: "{{ p4server_port }}"
+    - name: Creating user folder inside home
+      become: yes
+      become_method: community.general.sudosu
+      become_user: root
+      shell: |
+        mkdir /home/{{ ansible_user }} || true
+        cd /home/{{ ansible_user }}
+        mkdir /home/{{ ansible_user }}/bin || true
+        chown -R {{ ansible_user }}:{{ ansible_user }} /home/{{ ansible_user }}
+    - name: Copying executables in bin folder of home directory
+      copy:
+        src: "{{ item }}"
+        dest: /home/{{ ansible_user|lower }}/bin
+      with_items:
+        - "{{ workspace }}/configuration_management/executables/git-proxy"
+        - "{{ workspace }}/configuration_management/executables/repo"
+        - "{{ workspace }}/configuration_management/executables/p4"
+    - name: P4 setup by placing bin
+      ansible.builtin.lineinfile:
+        path: /data/home/{{ ansible_user|lower }}/.bashrc
+        line: export PATH=$PATH:/home/${USER}/bin
+    - name: Setting up ssh config
+      copy:
+        dest: "/data/home/{{ ansible_user }}/.ssh/config"
+        content: |
+          Host {{ Gerrit_hostname }}
+          Port 29418
+          User {{ ansible_user }}
+    - name: Setting up git config file
+      shell: |
+        git config --global user.name "{{ ansible_user }}"
+        git config --global user.email "{{ email }}"
+        git config --global color.ui "auto"
+        git config --global core.editor "vi"
+        git lfs install --skip-smudge
+        git config --global credential.helper "store --file ~/.my-credentials"
+    - name: Setting up netrc file
+      copy:
+        dest: "/data/home/{{ ansible_user }}/.netrc"
+        content: |
+          machine {{ Artifactory_hostname }}
+          login {{ ansible_user }}
+          password {{ ansible_password }}
+    - name: Copying qt-license to home directory
+      copy:
+        src: "{{ workspace }}/configuration_management/executables/.qt-license"
+        dest: /data/home/{{ ansible_user }}
+
+- name: Docker setup
+  hosts: all
+  become: yes
+  become_method: su
+  become_user: "{{ ansible_user }}"
+  tasks:
+    - name: Uninstalling older versions of docker
+      become: yes
+      become_method: community.general.sudosu
+      become_user: root
+      shell: "apt-get remove docker docker-engine docker.io containerd runc"
+    - name: Installing packages for docker
+      become: yes
+      become_method: community.general.sudosu
+      become_user: root
+      register: updatesys
+      apt:
+        update_cache: yes
+        name:
+          - ca-certificates
+          - lsb-release
+          - apt-transport-https 
+          - software-properties-common
+        force_apt_get: yes
+    - name: Adding GPG key
+      become: yes
+      become_method: community.general.sudosu
+      become_user: root
+      shell: |
+        mkdir -m 0755 -p /etc/apt/keyrings || true
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+    - name: Setting up the repository
+      become: yes
+      become_method: community.general.sudosu
+      become_user: root
+      copy:
+        dest: "/etc/apt/sources.list.d/docker.list"
+        content: |
+          deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable
+    - name: Installing docker engine
+      become: yes
+      become_method: community.general.sudosu
+      become_user: root
+      apt:
+        update_cache: yes
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+        force_apt_get: yes
+    - name: Checking the status of the docker
+      ansible.builtin.systemd:
+        state: started
+        name: docker
+    - name: Pull hello-world Docker image
+      become: yes
+      become_method: community.general.sudosu
+      become_user: root
+      community.docker.docker_image:
+        name: hello-world
+        source: pull
+    - name: To manage docker as non-root user
+      become: yes
+      become_method: community.general.sudosu
+      become_user: root
+      shell: |
+        groupadd docker
+        usermod -aG docker $USERNAME
+        chown "$USER":"domain users" $HOME/.docker -R
+        chmod g+rwx "$HOME/.docker" -R
+    - name: Testing to run docker as non-root
+      shell: |
+        newgrp docker
+        docker run hello-world
+    - name: Stopping docker service to change the default storage path
+      become: yes
+      become_method: community.general.sudosu
+      become_user: root
+      ansible.builtin.systemd:
+        state: stopped
+        name: docker
+    - name: Editing the daemon.json file to change the default storage path
+      become: yes
+      become_method: community.general.sudosu
+      become_user: root
+      copy:
+        dest: "/etc/docker/daemon.json"
+        content: |
+          {
+              "data-root": "/data/docker"
+          }
+    - name: Restarting docker service to change the default storage path
+      become: yes
+      become_method: community.general.sudosu
+      become_user: root
+      ansible.builtin.systemd:
+        state: started
+        name: docker
+        restart: yes
+    - name: Logging into artifactory
+      shell: "docker login -u {{ user }} {{ artifactory }}"
