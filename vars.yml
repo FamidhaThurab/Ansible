@@ -1,0 +1,7 @@
+p4server_ip: ip
+p4server_port:
+  - port1
+  - port2
+user: user
+gerrit_username: username
+gerrit_email: mail
